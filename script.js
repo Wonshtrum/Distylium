@@ -190,14 +190,28 @@ class Chunk {
 		this.x = ox;
 		this.y = oy;
 		this.taille_chunk = taille_chunk;
-		this.blocs = Array(taille_chunk).fill().map(()=>Array(taille_chunk).fill())
+		this.blocs = Array(taille_chunk).fill().map(()=>Array(taille_chunk).fill());
+
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
 				let val = terrain(ox+x, oy+y);
 				if (val<0.5) {
-					this.blocs[y][x] = new Air();
+					if (oy+y == 38) {
+						this.blocs[y][x] = new Eau(0,0,0,NIVEAU_MAX-1);
+					} else if (oy+y > 38) {
+						this.blocs[y][x] = new Eau();
+					} else {
+						val = terrain(ox+x, oy+y+1);
+						//if (val>=0.5 && val<0.501) {
+						//	this.blocs[y][x] = new Tronc();
+						if (val>=0.5 && val<0.51) {
+							this.blocs[y][x] = new Touffe();
+						} else {
+							this.blocs[y][x] = new Air();
+						}
+					}
 				} else if (val < 0.6) {
-					if (terrain(ox+x, oy+y-1)<0.5) {
+					if (oy+y<39 && terrain(ox+x, oy+y-1)<0.5) {
 						this.blocs[y][x] = new Herbe();
 					} else {
 						this.blocs[y][x] = new Terre();
@@ -242,11 +256,14 @@ class Chunk {
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
 				let bloc = this.blocs[y][x];
-				let capacite = bloc.capacite()*niveau;
-				if (APLAT && capacite>0 && capacite<taille && y>0 && this.blocs[y-1][x].niveau>0) {
-					capacite = 0;
+				let capacite = 0;
+				if (bloc instanceof Eau) {
+					capacite = bloc.capacite()*niveau;
+					if (APLAT && capacite>0 && capacite<taille && y>0 && this.blocs[y-1][x].niveau>0) {
+						capacite = 0;
+					}
 				}
-				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.id, tick);
+				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.texture, tick);
 			}
 		}
 	}
@@ -255,7 +272,8 @@ class Chunk {
 //---------------------------------------------------------------------------------------
 
 class Bloc {
-	constructor(tick) {
+	transparent = false;
+	constructor(tick=0) {
 		this.last_update = tick;
 	}
 	update() {
@@ -264,36 +282,82 @@ class Bloc {
 	capacite() {
 		return 0;
 	}
-	rempli() {}
+	rempli() {
+		return false;
+	}
+	remplace() {
+		return null;
+	}
 }
 
 class Air extends Bloc {
-	id = 0;
+	texture = 0;
+	transparent = true;
 	capacite() {
 		return NIVEAU_MAX;
 	}
 	rempli(x, y, monde, niveau, direction) {
-		if (this.niveau == niveau) {
-			return;
-		}
 		monde.set_bloc(x, y, new Eau(monde.tick, x, y, niveau, direction));
+	}
+	remplace() {
+		return this;
 	}
 }
 
 class Pierre extends Bloc {
-	id = 1;
-}
-
-class Herbe extends Bloc {
-	id = 2;
+	texture = 1;
 }
 
 class Terre extends Bloc {
-	id = 3;
+	texture = 3;
+	update(x, y, monde, tick) {
+		let bloc = monde.get_bloc(x, y-1);
+		if (bloc.transparent && !(bloc instanceof Eau)) {
+			if (Math.random()<0.04) {
+				for (let dy=-1; dy<=1; dy++) {
+					for (let dx=-1; dx<=1; dx++) {
+						if (monde.get_bloc(x+dx, y+dy) instanceof Herbe && Math.random()<0.5) {
+							monde.set_bloc(x, y, new Herbe());
+							return true;
+						}
+					}
+				}
+			}
+			return true;
+		}
+		return false;
+	}
+}
+
+class Herbe extends Bloc {
+	texture = 2;
+	update(x, y, monde, tick) {
+		if (monde.get_bloc(x, y-1) instanceof Eau) {
+			if (Math.random()<0.02) {
+				monde.set_bloc(x, y, new Terre());
+			}
+			return true;
+		}
+		return false;
+	}
+}
+
+class Touffe extends Bloc {
+	texture = 11;
+	transparent = true;
+	capacite() {
+		return NIVEAU_MAX;
+	}
+	rempli(x, y, monde, niveau, direction) {
+		monde.set_bloc(x, y, new Eau(monde.tick, x, y, niveau, direction));
+	}
+	remplace() {
+		return new Air();
+	}
 }
 
 class Bois extends Bloc {
-	id = 7;
+	texture = 7;
 }
 
 let NIVEAU_MAX = 4;
@@ -301,7 +365,8 @@ const DIRECTION_AUCUNE = 0;
 const DIRECTION_DROITE = 1;
 const DIRECTION_GAUCHE = -1;
 class Eau extends Bloc {
-	id = 6;
+	texture = 6;
+	transparent = true;
 	constructor(tick, x, y, niveau=NIVEAU_MAX, direction=DIRECTION_AUCUNE) {
 		super(tick);
 		this.niveau = niveau;
@@ -319,6 +384,10 @@ class Eau extends Bloc {
 		this.niveau = niveau;
 		this.direction = direction;
 		this.last_update = monde.tick;
+	}
+
+	remplace() {
+		return this;
 	}
 
 	update(x, y, monde, tick) {
@@ -377,7 +446,7 @@ class Eau extends Bloc {
 }
 
 class Tronc extends Bloc {
-	id = 6;
+	texture = 6;
 	constructor(tick, x, y, dx=0, dy=-1, age=50) {
 		super(tick);
 		this.x = x;
@@ -409,7 +478,8 @@ class Tronc extends Bloc {
 }
 
 class Feuilles extends Bloc {
-	id = 8;
+	texture = 8;
+	transparent = true;
 	constructor(tick, x, y, r=0, mr=50) {
 		super(tick);
 		this.x = x;
@@ -431,7 +501,7 @@ class Feuilles extends Bloc {
 		for (let [dx, dy] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
 			nx = ox+dx;
 			ny = oy+dy;
-			if (nx*nx+ny*ny <= r2 && monde.get_bloc(x+dx, y+dy).id == 0) {
+			if (nx*nx+ny*ny <= r2 && monde.get_bloc(x+dx, y+dy) instanceof Air) {
 				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, this.r, this.mr));
 			}
 		}
@@ -440,14 +510,21 @@ class Feuilles extends Bloc {
 }
 
 class Sable extends Bloc {
-	id = 6;
+	texture = 10;
 	update(x, y, monde, tick) {
-		let bloc;
 		for (let dx of [0, -1, 1]) {
-			bloc = monde.get_bloc(x+dx, y+1);
-			if (bloc.id == 0) {
-				monde.set_bloc(x+dx, y+1, this);
-				monde.set_bloc(x, y, bloc);
+			let remplaceur = monde.get_bloc(x+dx, y+1).remplace();
+			if (remplaceur !== null) {
+				let dy = 1;
+				if (dx !== 0) {
+					dy = 0;
+					remplaceur = monde.get_bloc(x+dx, y).remplace();
+					if (remplaceur === null) {
+						continue;
+					}
+				}
+				monde.set_bloc(x+dx, y+dy, this);
+				monde.set_bloc(x, y, remplaceur);
 				return true;
 			}
 		}
