@@ -124,43 +124,43 @@ class Monde {
 		return chunk;
 	}
 
-	_get_block(x, y) {
+	_get_bloc(x, y) {
 		let taille_chunk = this.taille_chunk;
 		if (x >= this.cache_x && y >= this.cache_y && x < this.cache_x+taille_chunk && y < this.cache_y+taille_chunk) {
-			return this.cache_chunk.get_block(x-this.cache_x, y-this.cache_y);
+			return this.cache_chunk.get_bloc(x-this.cache_x, y-this.cache_y);
 		}
 		let chunk_x = Math.floor(x / taille_chunk);
 		let chunk_y = Math.floor(y / taille_chunk);
 		this.cache_x = chunk_x*taille_chunk;
 		this.cache_y = chunk_y*taille_chunk;
-		let block_x = x - this.cache_x;
-		let block_y = y - this.cache_y;
+		let bloc_x = x - this.cache_x;
+		let bloc_y = y - this.cache_y;
 		this.cache_chunk = this.get_chunk(chunk_x, chunk_y);
-		return this.cache_chunk.get_block(block_x, block_y);
+		return this.cache_chunk.get_bloc(bloc_x, bloc_y);
 	}
 
-	get_block(x, y) {
+	get_bloc(x, y) {
 		let chunk_x = Math.floor(x / this.taille_chunk);
 		let chunk_y = Math.floor(y / this.taille_chunk);
-		let block_x = x - chunk_x*this.taille_chunk;
-		let block_y = y - chunk_y*this.taille_chunk;
-		return this.get_chunk(chunk_x, chunk_y).get_block(block_x, block_y);
+		let bloc_x = x - chunk_x*this.taille_chunk;
+		let bloc_y = y - chunk_y*this.taille_chunk;
+		return this.get_chunk(chunk_x, chunk_y).get_bloc(bloc_x, bloc_y);
 	}
 
-	set_block(x, y, block) {
+	set_bloc(x, y, bloc) {
 		let chunk_x = Math.floor(x / this.taille_chunk);
 		let chunk_y = Math.floor(y / this.taille_chunk);
-		let block_x = x - chunk_x*this.taille_chunk;
-		let block_y = y - chunk_y*this.taille_chunk;
-		return this.get_chunk(chunk_x, chunk_y).set_block(block_x, block_y, block);
+		let bloc_x = x - chunk_x*this.taille_chunk;
+		let bloc_y = y - chunk_y*this.taille_chunk;
+		return this.get_chunk(chunk_x, chunk_y).set_bloc(bloc_x, bloc_y, bloc);
 	}
 
-	dessine(x, y, offset_x, offset_y, taille, radius) {
+	dessine(x, y, offset_x, offset_y, taille, rayon) {
 		let chunk_x = Math.floor(x / this.taille_chunk);
 		let chunk_y = Math.floor(y / this.taille_chunk);
 		if (OPTIM) {
-			for (let dx=-radius; dx<=radius; dx++) {
-				for (let dy=-radius; dy<=radius; dy++) {
+			for (let dx=-rayon; dx<=rayon; dx++) {
+				for (let dy=-rayon; dy<=rayon; dy++) {
 					let chunk = this.chunks.get(chunk_id(chunk_x+dx, chunk_y+dy));
 					if (chunk !== undefined) {
 						chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick);
@@ -190,20 +190,20 @@ class Chunk {
 		this.x = ox;
 		this.y = oy;
 		this.taille_chunk = taille_chunk;
-		this.blocks = Array(taille_chunk).fill().map(()=>Array(taille_chunk).fill())
+		this.blocs = Array(taille_chunk).fill().map(()=>Array(taille_chunk).fill())
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
 				let val = terrain(ox+x, oy+y);
 				if (val<0.5) {
-					this.blocks[y][x] = new Air();
+					this.blocs[y][x] = new Air();
 				} else if (val < 0.6) {
 					if (terrain(ox+x, oy+y-1)<0.5) {
-						this.blocks[y][x] = new Grass();
+						this.blocs[y][x] = new Herbe();
 					} else {
-						this.blocks[y][x] = new Dirt();
+						this.blocs[y][x] = new Terre();
 					}
 				} else {
-					this.blocks[y][x] = new Stone();
+					this.blocs[y][x] = new Pierre();
 				}
 			}
 		}
@@ -215,22 +215,22 @@ class Chunk {
 		let taille_chunk = this.taille_chunk;
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
-				let block = this.blocks[y][x];
-				if (block.last_update < tick) {
-					block.last_update = tick;
-					block.update(ox+x, oy+y, monde, tick);
+				let bloc = this.blocs[y][x];
+				if (bloc.last_update < tick) {
+					bloc.last_update = tick;
+					bloc.update(ox+x, oy+y, monde, tick);
 				}
 			}
 		}
 	}
 
-	get_block(x, y) {
-		return this.blocks[y][x];
+	get_bloc(x, y) {
+		return this.blocs[y][x];
 	}
 
-	set_block(x, y, block) {
-		let old = this.blocks[y][x];
-		this.blocks[y][x] = block;
+	set_bloc(x, y, bloc) {
+		let old = this.blocs[y][x];
+		this.blocs[y][x] = bloc;
 		return old;
 	}
 
@@ -238,9 +238,15 @@ class Chunk {
 		let taille_chunk = this.taille_chunk;
 		ox = this.x-ox;
 		oy = this.y-oy;
+		const niveau = Math.floor(taille/NIVEAU_MAX);
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
-				atlas.dessine((ox+x)*taille, (oy+y)*taille, taille, taille, this.blocks[y][x].id, tick);
+				let bloc = this.blocs[y][x];
+				let capacite = bloc.capacite()*niveau;
+				if (APLAT && capacite>0 && capacite<taille && y>0 && this.blocs[y-1][x].niveau>0) {
+					capacite = 0;
+				}
+				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.id, tick);
 			}
 		}
 	}
@@ -248,36 +254,129 @@ class Chunk {
 
 //---------------------------------------------------------------------------------------
 
-class Block {
+class Bloc {
 	constructor(tick) {
 		this.last_update = tick;
 	}
 	update() {
 		return false;
 	}
+	capacite() {
+		return 0;
+	}
+	rempli() {}
 }
 
-class Air extends Block {
+class Air extends Bloc {
 	id = 0;
+	capacite() {
+		return NIVEAU_MAX;
+	}
+	rempli(x, y, monde, niveau, direction) {
+		if (this.niveau == niveau) {
+			return;
+		}
+		monde.set_bloc(x, y, new Eau(monde.tick, x, y, niveau, direction));
+	}
 }
 
-class Stone extends Block {
+class Pierre extends Bloc {
 	id = 1;
 }
 
-class Grass extends Block {
+class Herbe extends Bloc {
 	id = 2;
 }
 
-class Dirt extends Block {
+class Terre extends Bloc {
 	id = 3;
 }
 
-class Wood extends Block {
+class Bois extends Bloc {
 	id = 7;
 }
 
-class Trunk extends Block {
+let NIVEAU_MAX = 4;
+const DIRECTION_AUCUNE = 0;
+const DIRECTION_DROITE = 1;
+const DIRECTION_GAUCHE = -1;
+class Eau extends Bloc {
+	id = 6;
+	constructor(tick, x, y, niveau=NIVEAU_MAX, direction=DIRECTION_AUCUNE) {
+		super(tick);
+		this.niveau = niveau;
+		this.direction = direction;
+	}
+
+	capacite() {
+		return NIVEAU_MAX-this.niveau;
+	}
+
+	rempli(x, y, monde, niveau, direction) {
+		if (this.niveau == niveau) {
+			return;
+		}
+		this.niveau = niveau;
+		this.direction = direction;
+		this.last_update = monde.tick;
+	}
+
+	update(x, y, monde, tick) {
+		if (this.niveau == 0) {
+			monde.set_bloc(x, y, new Air(tick));
+			return false;
+		}
+
+		let bas = monde.get_bloc(x, y+1);
+		let capacite_bas = bas.capacite();
+		if (capacite_bas > 0) {
+			let quantite = Math.min(this.niveau, capacite_bas);
+			this.niveau -= quantite;
+			bas.rempli(x, y+1, monde, NIVEAU_MAX + quantite - capacite_bas, DIRECTION_AUCUNE);
+		}
+
+		if (this.niveau == 0) {
+			return true;
+		}
+
+		let droite = monde.get_bloc(x+1, y);
+		let gauche = monde.get_bloc(x-1, y);
+		let capacite_droite = droite.capacite();
+		let capacite_gauche = gauche.capacite();
+		if (capacite_droite > 0 && capacite_gauche > 0) {
+			let quantite = this.niveau + 2*NIVEAU_MAX - capacite_droite - capacite_gauche;
+			let repartition = Math.floor(quantite/3);
+			let reste = quantite - 3*repartition;
+			this.niveau = repartition;
+			if (reste == 0) {
+				droite.rempli(x+1, y, monde, repartition, DIRECTION_AUCUNE);
+				gauche.rempli(x-1, y, monde, repartition, DIRECTION_AUCUNE);
+			} else if (reste == 2) {
+				droite.rempli(x+1, y, monde, repartition+1, DIRECTION_DROITE);
+				gauche.rempli(x-1, y, monde, repartition+1, DIRECTION_GAUCHE);
+			} else if (this.direction == DIRECTION_DROITE) {
+				droite.rempli(x+1, y, monde, repartition+1, DIRECTION_DROITE);
+				gauche.rempli(x-1, y, monde, repartition, DIRECTION_AUCUNE);
+			} else {
+				droite.rempli(x+1, y, monde, repartition, DIRECTION_AUCUNE);
+				gauche.rempli(x-1, y, monde, repartition+1, DIRECTION_GAUCHE);
+			}
+		} else if (capacite_droite > 0) {
+			let quantite = this.niveau + NIVEAU_MAX - capacite_droite;
+			let repartition = Math.floor(quantite/2);
+			this.niveau = repartition;
+			droite.rempli(x+1, y, monde, quantite - repartition, DIRECTION_DROITE);
+		} else if (capacite_gauche > 0) {
+			let quantite = this.niveau + NIVEAU_MAX - capacite_gauche;
+			let repartition = Math.floor(quantite/2);
+			this.niveau = repartition;
+			gauche.rempli(x-1, y, monde, quantite - repartition, DIRECTION_GAUCHE);
+		}
+		return true;
+	}
+}
+
+class Tronc extends Bloc {
 	id = 6;
 	constructor(tick, x, y, dx=0, dy=-1, age=50) {
 		super(tick);
@@ -289,9 +388,9 @@ class Trunk extends Block {
 	}
 
 	update(x, y, monde, tick) {
-		monde.set_block(x, y, new Wood());
+		monde.set_bloc(x, y, new Bois());
 		if (this.age == 0 || (this.age<30 && Math.random() > 0.9)) {
-			monde.set_block(x, y, new Leaves(tick, x, y, 0, this.age/8+4));
+			monde.set_bloc(x, y, new Feuilles(tick, x, y, 0, this.age/8+4));
 		}
 		if (this.age <= 0) {
 			return;
@@ -301,15 +400,15 @@ class Trunk extends Block {
 		let dx = this.dx+rnd(-0.2, 0.2);
 		let dy = this.dy+rnd(-0.2, 0.2);
 		let d  = Math.sqrt(dx*dx+dy*dy);
-		monde.set_block(
+		monde.set_bloc(
 			Math.floor(x),
 			Math.floor(y),
-			new Trunk(tick, x, y, dx/d, dy/d, this.age-1),
+			new Tronc(tick, x, y, dx/d, dy/d, this.age-1),
 		)
 	}
 }
 
-class Leaves extends Block {
+class Feuilles extends Bloc {
 	id = 8;
 	constructor(tick, x, y, r=0, mr=50) {
 		super(tick);
@@ -332,23 +431,23 @@ class Leaves extends Block {
 		for (let [dx, dy] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
 			nx = ox+dx;
 			ny = oy+dy;
-			if (nx*nx+ny*ny <= r2 && monde.get_block(x+dx, y+dy).id == 0) {
-				monde.set_block(x+dx, y+dy, new Leaves(tick, this.x, this.y, this.r, this.mr));
+			if (nx*nx+ny*ny <= r2 && monde.get_bloc(x+dx, y+dy).id == 0) {
+				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, this.r, this.mr));
 			}
 		}
 		return true;
 	}
 }
 
-class Sand extends Block {
+class Sable extends Bloc {
 	id = 6;
 	update(x, y, monde, tick) {
-		let block;
+		let bloc;
 		for (let dx of [0, -1, 1]) {
-			block = monde.get_block(x+dx, y+1);
-			if (block.id == 0) {
-				monde.set_block(x+dx, y+1, this);
-				monde.set_block(x, y, block);
+			bloc = monde.get_bloc(x+dx, y+1);
+			if (bloc.id == 0) {
+				monde.set_bloc(x+dx, y+1, this);
+				monde.set_bloc(x, y, bloc);
 				return true;
 			}
 		}
@@ -381,24 +480,25 @@ let x = 0;
 let y = 0;
 let OPTIM = false;
 let VITESSE = 2;
-let ZOOM = 8;
+let ZOOM = 24;
 let RADIUS = 2;
-let BLOCK = Trunk;
+let BLOC = Eau;
+let APLAT = true;
 let TIME = 2;
 
 function tick() {
 	dessine_carré(0, 0, TAILLE_ECRAN, TAILLE_ECRAN, CIEL);
 
-	let blocks = Math.ceil(TAILLE_ECRAN/ZOOM);
+	let blocs = Math.ceil(TAILLE_ECRAN/ZOOM);
 	for (let dx=-RADIUS; dx<=RADIUS; dx++) {
 		for (let dy=-RADIUS; dy<=RADIUS; dy++) {
-			monde.get_block(x+dx*TAILLE_CHUNK, y+dy*TAILLE_CHUNK);
+			monde.get_bloc(x+dx*TAILLE_CHUNK, y+dy*TAILLE_CHUNK);
 		}
 	}
 	if (monde.tick%TIME == 0) {
 		monde.update();
 	}
-	monde.dessine(x, y, blocks/2, blocks/2, ZOOM, 2*RADIUS);
+	monde.dessine(x, y, blocs/2, blocs/2, ZOOM, 2*RADIUS);
 
 	//---------------------------------------------------------------------------------------
 	if (CLAVIER[HAUT] || CLAVIER["Z"]) {
@@ -414,7 +514,7 @@ function tick() {
 		x += VITESSE;
 	}
 	if (CLAVIER[" "]) {
-		monde.set_block(x, y, new BLOCK(0, x, y));
+		monde.set_bloc(x, y, new BLOC(0, x, y));
 	}
 
 	//---------------------------------------------------------------------------------------
