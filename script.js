@@ -3,6 +3,7 @@ const CIEL = "#AACCFF";
 
 let ECRAN = null;
 const CLAVIER = {};
+const SOURIS = {};
 const HAUT = "ARROWUP";
 const BAS = "ARROWDOWN";
 const GAUCHE = "ARROWLEFT";
@@ -31,7 +32,6 @@ function initialisation() {
 	ECRAN.imageSmoothingEnabled = false;
 	requestAnimationFrame(tick);
 }
-window.onload = initialisation;
 
 function dessine_carré(x, y, w, h, couleur) {
 	ECRAN.fillStyle = couleur;
@@ -48,8 +48,18 @@ function touche_pressée(e) {
 function touche_relachée(e) {
 	CLAVIER[e.key.toUpperCase()] = false;
 }
+function souris(e) {
+	SOURIS.bouton = e.buttons;
+	SOURIS.x = e.clientX;
+	SOURIS.x = e.clientY;
+	SOURIS.bloc_x = Math.floor((e.clientX-8-TAILLE_ECRAN/2)/ZOOM);
+	SOURIS.bloc_y = Math.floor((e.clientY-8-TAILLE_ECRAN/2)/ZOOM);
+}
 document.addEventListener("keydown", touche_pressée);
 document.addEventListener("keyup", touche_relachée);
+document.addEventListener("mousemove", souris);
+document.addEventListener("mousedown", souris);
+document.addEventListener("mouseup", souris);
 
 function charge_image(url) {
 	let img = new Image();
@@ -124,6 +134,14 @@ class Monde {
 		return chunk;
 	}
 
+	on_chunk(x, y, f) {
+		let chunk = this.chunks.get(chunk_id(x, y));
+		if (chunk === undefined) {
+			return null;
+		}
+		return f(chunk);
+	}
+
 	_get_bloc(x, y) {
 		let taille_chunk = this.taille_chunk;
 		if (x >= this.cache_x && y >= this.cache_y && x < this.cache_x+taille_chunk && y < this.cache_y+taille_chunk) {
@@ -148,11 +166,32 @@ class Monde {
 	}
 
 	set_bloc(x, y, bloc) {
+		this.reveille(x, y);
 		let chunk_x = Math.floor(x / this.taille_chunk);
 		let chunk_y = Math.floor(y / this.taille_chunk);
 		let bloc_x = x - chunk_x*this.taille_chunk;
 		let bloc_y = y - chunk_y*this.taille_chunk;
 		return this.get_chunk(chunk_x, chunk_y).set_bloc(bloc_x, bloc_y, bloc);
+	}
+
+	reveille(x, y) {
+		let taille_chunk = this.taille_chunk;
+		let chunk_x = Math.floor(x / taille_chunk);
+		let chunk_y = Math.floor(y / taille_chunk);
+		let bloc_x = x - chunk_x*taille_chunk;
+		let bloc_y = y - chunk_y*taille_chunk;
+		let actif = chunk => { chunk.actif = true; };
+		this.on_chunk(chunk_x, chunk_y, actif);
+		if (bloc_x == 0) {
+			this.on_chunk(chunk_x-1, chunk_y, actif);
+		} else if (bloc_x == taille_chunk-1) {
+			this.on_chunk(chunk_x+1, chunk_y, actif);
+		}
+		if (bloc_y == 0) {
+			this.on_chunk(x, chunk_y-1, actif);
+		} else if (bloc_y == taille_chunk-1) {
+			this.on_chunk(x, chunk_y+1, actif);
+		}
 	}
 
 	dessine(x, y, offset_x, offset_y, taille, rayon) {
@@ -190,6 +229,7 @@ class Chunk {
 		this.x = ox;
 		this.y = oy;
 		this.taille_chunk = taille_chunk;
+		this.actif = true;
 		this.blocs = Array(taille_chunk).fill().map(()=>Array(taille_chunk).fill());
 
 		for (let y=0; y<taille_chunk; y++) {
@@ -224,18 +264,23 @@ class Chunk {
 	}
 
 	update(monde, tick) {
+		if (!this.actif && PARESSEUX) {
+			return;
+		}
 		let ox = this.x;
 		let oy = this.y;
 		let taille_chunk = this.taille_chunk;
+		let actif = false;
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
 				let bloc = this.blocs[y][x];
 				if (bloc.last_update < tick) {
 					bloc.last_update = tick;
-					bloc.update(ox+x, oy+y, monde, tick);
+					actif |= bloc.update(ox+x, oy+y, monde, tick);
 				}
 			}
 		}
+		this.actif = actif;
 	}
 
 	get_bloc(x, y) {
@@ -243,6 +288,7 @@ class Chunk {
 	}
 
 	set_bloc(x, y, bloc) {
+		this.actif = true
 		let old = this.blocs[y][x];
 		this.blocs[y][x] = bloc;
 		return old;
@@ -265,6 +311,9 @@ class Chunk {
 				}
 				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.texture, tick);
 			}
+		}
+		if (this.actif) {
+			dessine_carré(ox*taille, oy*taille, taille_chunk*taille, taille_chunk*taille, "rgba(255, 0, 0, 0.1)");
 		}
 	}
 }
@@ -312,20 +361,20 @@ class Terre extends Bloc {
 	texture = 3;
 	update(x, y, monde, tick) {
 		let bloc = monde.get_bloc(x, y-1);
+		let actif = false;
 		if (bloc.transparent && !(bloc instanceof Eau)) {
-			if (Math.random()<0.04) {
-				for (let dy=-1; dy<=1; dy++) {
-					for (let dx=-1; dx<=1; dx++) {
-						if (monde.get_bloc(x+dx, y+dy) instanceof Herbe && Math.random()<0.5) {
+			for (let dy=-1; dy<=1; dy++) {
+				for (let dx=-1; dx<=1; dx++) {
+					if (monde.get_bloc(x+dx, y+dy) instanceof Herbe) {
+						actif = true;
+						if (Math.random()<0.04) {
 							monde.set_bloc(x, y, new Herbe());
-							return true;
 						}
 					}
 				}
 			}
-			return true;
 		}
-		return false;
+		return actif;
 	}
 }
 
@@ -354,6 +403,13 @@ class Touffe extends Bloc {
 	remplace() {
 		return new Air();
 	}
+	update(x, y, monde, tick) {
+		if (!(monde.get_bloc(x, y+1) instanceof Herbe)) {
+			monde.set_bloc(x, y, new Air());
+			return true;
+		}
+		return false;
+	}
 }
 
 class Bois extends Bloc {
@@ -381,6 +437,7 @@ class Eau extends Bloc {
 		if (this.niveau == niveau) {
 			return;
 		}
+		monde.reveille(x, y);
 		this.niveau = niveau;
 		this.direction = direction;
 		this.last_update = monde.tick;
@@ -412,7 +469,11 @@ class Eau extends Bloc {
 		let gauche = monde.get_bloc(x-1, y);
 		let capacite_droite = droite.capacite();
 		let capacite_gauche = gauche.capacite();
+		let capacite = NIVEAU_MAX-this.niveau;
 		if (capacite_droite > 0 && capacite_gauche > 0) {
+			if (capacite_droite == capacite && capacite_gauche == capacite) {
+				return false;
+			}
 			let quantite = this.niveau + 2*NIVEAU_MAX - capacite_droite - capacite_gauche;
 			let repartition = Math.floor(quantite/3);
 			let reste = quantite - 3*repartition;
@@ -431,15 +492,23 @@ class Eau extends Bloc {
 				gauche.rempli(x-1, y, monde, repartition+1, DIRECTION_GAUCHE);
 			}
 		} else if (capacite_droite > 0) {
+			if (capacite_droite == capacite) {
+				return false;
+			}
 			let quantite = this.niveau + NIVEAU_MAX - capacite_droite;
 			let repartition = Math.floor(quantite/2);
 			this.niveau = repartition;
 			droite.rempli(x+1, y, monde, quantite - repartition, DIRECTION_DROITE);
 		} else if (capacite_gauche > 0) {
+			if (capacite_gauche == capacite) {
+				return false;
+			}
 			let quantite = this.niveau + NIVEAU_MAX - capacite_gauche;
 			let repartition = Math.floor(quantite/2);
 			this.niveau = repartition;
 			gauche.rempli(x-1, y, monde, quantite - repartition, DIRECTION_GAUCHE);
+		} else {
+			return false;
 		}
 		return true;
 	}
@@ -462,7 +531,7 @@ class Tronc extends Bloc {
 			monde.set_bloc(x, y, new Feuilles(tick, x, y, 0, this.age/8+4));
 		}
 		if (this.age <= 0) {
-			return;
+			return true;
 		}
 		x = this.x+this.dx;
 		y = this.y+this.dy;
@@ -474,6 +543,7 @@ class Tronc extends Bloc {
 			Math.floor(y),
 			new Tronc(tick, x, y, dx/d, dy/d, this.age-1),
 		)
+		return true;
 	}
 }
 
@@ -505,7 +575,7 @@ class Feuilles extends Bloc {
 				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, this.r, this.mr));
 			}
 		}
-		return true;
+		return false;
 	}
 }
 
@@ -558,24 +628,25 @@ let y = 0;
 let OPTIM = false;
 let VITESSE = 2;
 let ZOOM = 24;
-let RADIUS = 2;
+let RAYON = 2;
 let BLOC = Eau;
 let APLAT = true;
-let TIME = 2;
+let INTERVAL = 2;
+let PARESSEUX = true;
 
 function tick() {
 	dessine_carré(0, 0, TAILLE_ECRAN, TAILLE_ECRAN, CIEL);
 
-	let blocs = Math.ceil(TAILLE_ECRAN/ZOOM);
-	for (let dx=-RADIUS; dx<=RADIUS; dx++) {
-		for (let dy=-RADIUS; dy<=RADIUS; dy++) {
+	let blocs = TAILLE_ECRAN/ZOOM;
+	for (let dx=-RAYON; dx<=RAYON; dx++) {
+		for (let dy=-RAYON; dy<=RAYON; dy++) {
 			monde.get_bloc(x+dx*TAILLE_CHUNK, y+dy*TAILLE_CHUNK);
 		}
 	}
-	if (monde.tick%TIME == 0) {
+	if (monde.tick%INTERVAL == 0) {
 		monde.update();
 	}
-	monde.dessine(x, y, blocs/2, blocs/2, ZOOM, 2*RADIUS);
+	monde.dessine(x, y, blocs/2, blocs/2, ZOOM, 2*RAYON);
 
 	//---------------------------------------------------------------------------------------
 	if (CLAVIER[HAUT] || CLAVIER["Z"]) {
@@ -590,8 +661,8 @@ function tick() {
 	if (CLAVIER[DROITE] || CLAVIER["D"]) {
 		x += VITESSE;
 	}
-	if (CLAVIER[" "]) {
-		monde.set_bloc(x, y, new BLOC(0, x, y));
+	if (SOURIS.bouton == 1) {
+		monde.set_bloc(x+SOURIS.bloc_x, y+SOURIS.bloc_y, new BLOC(0, x, y));
 	}
 
 	//---------------------------------------------------------------------------------------
