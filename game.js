@@ -1,79 +1,3 @@
-const TAILLE_ECRAN = 640;
-const CIEL = "#AACCFF";
-
-let ECRAN = null;
-const CLAVIER = {};
-const SOURIS = {};
-const HAUT = "ARROWUP";
-const BAS = "ARROWDOWN";
-const GAUCHE = "ARROWLEFT";
-const DROITE = "ARROWRIGHT";
-
-//---------------------------------------------------------------------------------------
-
-function perf(f) {
-	let start = new Date().getTime();
-	for (i = 0; i < 50000000; ++i) {
-		f();
-	}
-	let end = new Date().getTime();
-	return end - start;
-}
-
-function initialisation() {
-	console.log("initialisation");
-	ECRAN = document.getElementById("ecran");
-	ECRAN.width = TAILLE_ECRAN;
-	ECRAN.height = TAILLE_ECRAN;
-	ECRAN.style.width = `${TAILLE_ECRAN}px`;
-	ECRAN.style.height = `${TAILLE_ECRAN}px`;
-
-	ECRAN = ECRAN.getContext("2d");
-	ECRAN.imageSmoothingEnabled = false;
-	requestAnimationFrame(tick);
-}
-
-function dessine_carré(x, y, w, h, couleur) {
-	ECRAN.fillStyle = couleur;
-	ECRAN.fillRect(x, y, w, h);
-}
-
-function dessine_image(x, y, w, h, img) {
-	ECRAN.drawImage(img, 0, 0, img.width, img.height, x, y, w, h);
-}
-
-function touche_pressée(e) {
-	CLAVIER[e.key.toUpperCase()] = true;
-}
-function touche_relachée(e) {
-	CLAVIER[e.key.toUpperCase()] = false;
-}
-function souris(e) {
-	SOURIS.bouton = e.buttons;
-	SOURIS.x = e.clientX;
-	SOURIS.x = e.clientY;
-	SOURIS.bloc_x = Math.floor((e.clientX-8-TAILLE_ECRAN/2)/ZOOM);
-	SOURIS.bloc_y = Math.floor((e.clientY-8-TAILLE_ECRAN/2)/ZOOM);
-}
-document.addEventListener("keydown", touche_pressée);
-document.addEventListener("keyup", touche_relachée);
-document.addEventListener("mousemove", souris);
-document.addEventListener("mousedown", souris);
-document.addEventListener("mouseup", souris);
-
-function charge_image(url) {
-	let img = new Image();
-	img.onload = function() {
-		console.log(url, "loaded");
-	};
-	img.src = "img/"+url;
-	return img;
-}
-
-
-//=======================================================================================
-//=======================================================================================
-
 class Atlas {
 	constructor(atlas, taille, animations) {
 		this.atlas = atlas;
@@ -81,14 +5,15 @@ class Atlas {
 		this.animations = animations;
 	}
 
-	dessine(x, y, w, h, id, tick) {
+	dessine(x, y, w, h, id, tick, ctx) {
 		let animation = this.animations[id];
 		if (animation == null) {
 			animation = 0;
 		} else {
 			animation = Math.floor(tick/animation[0])%animation[1];
 		}
-		ECRAN.drawImage(this.atlas, this.taille*animation, this.taille*id, this.taille, this.taille, x, y, w, h);
+		//ECRAN.drawImage(this.atlas, this.taille*animation, this.taille*id, this.taille, this.taille, x, y, w, h);
+		ctx.draw_quad(x, y, w, h, id, animation, 1, 1, 0, 0);
 	}
 }
 
@@ -194,7 +119,7 @@ class Monde {
 		}
 	}
 
-	dessine(x, y, offset_x, offset_y, taille, rayon) {
+	dessine(x, y, offset_x, offset_y, taille, rayon, ctx) {
 		let chunk_x = Math.floor(x / this.taille_chunk);
 		let chunk_y = Math.floor(y / this.taille_chunk);
 		if (OPTIM) {
@@ -202,15 +127,17 @@ class Monde {
 				for (let dy=-rayon; dy<=rayon; dy++) {
 					let chunk = this.chunks.get(chunk_id(chunk_x+dx, chunk_y+dy));
 					if (chunk !== undefined) {
-						chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick);
+						chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick, ctx);
 					}
 				}
 			}
 		} else {
 			for (let chunk of this.chunks.values()) {
-				chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick);
+				chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick, ctx);
 			}
 		}
+		ctx.flush();
+		ctx.begin();
 		this.tick++;
 	}
 }
@@ -294,7 +221,7 @@ class Chunk {
 		return old;
 	}
 
-	dessine(ox, oy, taille, atlas, tick) {
+	dessine(ox, oy, taille, atlas, tick, ctx) {
 		let taille_chunk = this.taille_chunk;
 		ox = this.x-ox;
 		oy = this.y-oy;
@@ -309,12 +236,12 @@ class Chunk {
 						capacite = 0;
 					}
 				}
-				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.texture, tick);
+				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.texture, tick, ctx);
 			}
 		}
-		if (this.actif) {
+		/*if (this.actif) {
 			dessine_carré(ox*taille, oy*taille, taille_chunk*taille, taille_chunk*taille, "rgba(255, 0, 0, 0.1)");
-		}
+		}*/
 	}
 }
 
@@ -622,6 +549,7 @@ const atlas = new Atlas(
 );
 const TAILLE_CHUNK = 8;
 const monde = new Monde(TAILLE_CHUNK, atlas);
+const batch = new Batch(1000);
 
 let x = 0;
 let y = 0;
@@ -635,9 +563,8 @@ let INTERVAL = 2;
 let PARESSEUX = true;
 
 function tick() {
-	dessine_carré(0, 0, TAILLE_ECRAN, TAILLE_ECRAN, CIEL);
+	gl.clear(gl.COLOR_BUFFER_BIT);
 
-	let blocs = TAILLE_ECRAN/ZOOM;
 	for (let dx=-RAYON; dx<=RAYON; dx++) {
 		for (let dy=-RAYON; dy<=RAYON; dy++) {
 			monde.get_bloc(x+dx*TAILLE_CHUNK, y+dy*TAILLE_CHUNK);
@@ -646,7 +573,7 @@ function tick() {
 	if (monde.tick%INTERVAL == 0) {
 		monde.update();
 	}
-	monde.dessine(x, y, blocs/2, blocs/2, ZOOM, 2*RAYON);
+	monde.dessine(x, y, ECRAN_LARGEUR/(2*ZOOM), ECRAN_HAUTEUR/(2*ZOOM), ZOOM, 2*RAYON, batch);
 
 	//---------------------------------------------------------------------------------------
 	if (CLAVIER[HAUT] || CLAVIER["Z"]) {
@@ -668,3 +595,4 @@ function tick() {
 	//---------------------------------------------------------------------------------------
 	requestAnimationFrame(tick);
 }
+requestAnimationFrame(tick);
