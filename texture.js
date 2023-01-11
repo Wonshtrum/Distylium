@@ -3,6 +3,7 @@ function charge_image(url) {
 	img.onload = function() {
 		console.log(url, "loaded");
 	};
+	img.crossOrigin = "";
 	img.src = "img/"+url;
 	return img;
 }

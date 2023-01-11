@@ -55,9 +55,8 @@ const base_shader = new Shader(
 	out vec3 v_color;
 	vec2 u_atlasSize = vec2(4, 14);
 	void main() {
-		gl_Position = vec4((a_position+a_offset*a_scale)/u_screen-vec2(1), 1, 1)*vec4(1, -1, 1, 1);
+		gl_Position = vec4((a_position+a_offset*a_scale-u_camera.xy)*u_camera.zz/u_screen, 1, 1)*vec4(1, -1, 1, 1);
 		v_texCoord = (a_tex+a_offset)/u_atlasSize;
-		//v_texCoord = (a_offset+a_tex)/vec2(4, 7);
 		v_color = vec3(1);
 	}`,
 

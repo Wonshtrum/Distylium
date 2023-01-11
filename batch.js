@@ -50,7 +50,6 @@ class Batch {
 	}
 	bind() {
 		gl.bindVertexArray(this.va);
-		//gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ib);
 	}
 	begin() {
 		if (LOCK) return;
@@ -59,6 +58,7 @@ class Batch {
 	}
 	draw_quad(x, y, w, h, tex, anim, fill, r, g, b) {
 		if (this.quad >= this.max_quad) {
+			if (LOCK) return;
 			this.flush();
 			this.begin();
 		}
@@ -76,9 +76,8 @@ class Batch {
 		this.quad++;
 	}
 	flush() {
-		//gl.bindBuffer(gl.ARRAY_BUFFER, this.vb);
+		gl.bindBuffer(gl.ARRAY_BUFFER, this.transform_vb);
 		gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.transform_data, 0, this.index);
-		//gl.drawElements(gl.TRIANGLES, 6*this.quad, gl.UNSIGNED_SHORT, 0);
 		gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, this.quad);
 	}
 }

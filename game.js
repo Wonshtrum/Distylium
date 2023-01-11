@@ -37,6 +37,8 @@ class Monde {
 		this.cache_chunk = null;
 		this.cache_x = Infinity;
 		this.cache_y = Infinity;
+
+		this.entités = [];
 	}
 
 	update() {
@@ -119,7 +121,7 @@ class Monde {
 		}
 	}
 
-	dessine(x, y, offset_x, offset_y, taille, rayon, ctx) {
+	dessine(rayon, ctx) {
 		let chunk_x = Math.floor(x / this.taille_chunk);
 		let chunk_y = Math.floor(y / this.taille_chunk);
 		if (OPTIM) {
@@ -127,14 +129,17 @@ class Monde {
 				for (let dy=-rayon; dy<=rayon; dy++) {
 					let chunk = this.chunks.get(chunk_id(chunk_x+dx, chunk_y+dy));
 					if (chunk !== undefined) {
-						chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick, ctx);
+						chunk.dessine(this.atlas, this.tick, ctx);
 					}
 				}
 			}
 		} else {
 			for (let chunk of this.chunks.values()) {
-				chunk.dessine(x-offset_x, y-offset_y, taille, this.atlas, this.tick, ctx);
+				chunk.dessine(this.atlas, this.tick, ctx);
 			}
+		}
+		for (let entité of this.entités) {
+			entité.dessine(this.atlas, this.tick, ctx);
 		}
 		ctx.flush();
 		ctx.begin();
@@ -221,22 +226,24 @@ class Chunk {
 		return old;
 	}
 
-	dessine(ox, oy, taille, atlas, tick, ctx) {
+	dessine(atlas, tick, ctx) {
 		let taille_chunk = this.taille_chunk;
-		ox = this.x-ox;
-		oy = this.y-oy;
-		const niveau = Math.floor(taille/NIVEAU_MAX);
+		let ox = this.x;
+		let oy = this.y;
+		const niveau = 1/NIVEAU_MAX;
 		for (let y=0; y<taille_chunk; y++) {
 			for (let x=0; x<taille_chunk; x++) {
 				let bloc = this.blocs[y][x];
+				if (bloc instanceof Air) continue;
 				let capacite = 0;
 				if (bloc instanceof Eau) {
-					capacite = bloc.capacite()*niveau;
-					if (APLAT && capacite>0 && capacite<taille && y>0 && this.blocs[y-1][x].niveau>0) {
+					capacite = bloc.capacite();
+					if (APLAT && capacite<NIVEAU_MAX && y>0 && this.blocs[y-1][x].niveau>0) {
 						capacite = 0;
 					}
 				}
-				atlas.dessine((ox+x)*taille, (oy+y)*taille+capacite, taille, taille-capacite, bloc.texture, tick, ctx);
+				capacite *= niveau;
+				atlas.dessine(ox+x, oy+y+capacite, 1, 1-capacite, bloc.texture, tick, ctx);
 			}
 		}
 		/*if (this.actif) {
@@ -482,27 +489,38 @@ class Feuilles extends Bloc {
 		this.x = x;
 		this.y = y;
 		this.r = r;
+		this.or = r;
 		this.mr = mr;
+		this.full = false;
 	}
 
 	update(x, y, monde, tick) {
 		let nx, ny;
-		if (this.r < this.mr) {
-			this.r += 0.1;
-		} else {
+		if (this.r >= this.mr) {
 			return false;
 		}
 		let r2 = this.r*this.r;
 		let ox = x-this.x;
 		let oy = y-this.y;
+		this.full = true;
 		for (let [dx, dy] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
-			nx = ox+dx;
-			ny = oy+dy;
-			if (nx*nx+ny*ny <= r2 && monde.get_bloc(x+dx, y+dy) instanceof Air) {
-				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, this.r, this.mr));
+			let nx = ox+dx;
+			let ny = oy+dy;
+			let nr = nx*nx+ny*ny;
+			let valid = monde.get_bloc(x+dx, y+dy) instanceof Air;
+			if (nr <= r2 && valid) {
+				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, Math.sqrt(nr), this.mr));
+			} else if (valid) {
+				this.full = false;
 			}
 		}
-		return false;
+		if (this.full) {
+			this.r = this.or;
+			return false;
+		} else {
+			this.r += 0.1;
+			return true;
+		}
 	}
 }
 
@@ -529,11 +547,79 @@ class Sable extends Bloc {
 	}
 }
 
+function collision(x, y, w, h, dx, dy, monde) {
+	let min_x = Math.floor(x);
+	let min_y = Math.floor(y);
+	let max_x = Math.ceil(x+w);
+	let max_y = Math.ceil(y+h);
+	let flag = false;
+	for (let j=min_y; j<max_y; j++) {
+		for (let i=min_x; i<max_x; i++) {
+			if (!monde.get_bloc(i, j).transparent) {
+				if (dx>0 && i+1>x+w) {
+					x = i-w;
+					flag = true;
+				} else if (dx<0 && i<x) {
+					x = i+1;
+					flag = true;
+				} else if (dy>0 && j+1>y+h) {
+					y = j-h;
+					flag = true;
+				} else if (dy<0 && j<y) {
+					y = j+1;
+					flag = true;
+				}
+			}
+		}
+	}
+	return [x, y, flag];
+}
+
+GRAVITE = 0.2;
+class Entité {
+	texture = 1
+	constructor(x, y, w, h) {
+		this.x = x;
+		this.y = y;
+		this.w = w;
+		this.h = h;
+		this.vx = 0;
+		this.vy = 0;
+		this.au_sol = false;
+	}
+	update(vx, vy, monde) {
+		this.vx += vx;
+		this.vy += vy;
+		if (!this.au_sol) {
+			this.vy += GRAVITE;
+		}
+		let x = this.x;
+		let y = this.y;
+		let flag;
+		[x, y, flag] = collision(x, y+this.vy, 0, this.vy, monde);
+		if (flag) {
+			if (this.vy > 0) {
+				this.au_sol = true;
+			}
+			this.vy = 0;
+		}
+		[x, y, flag] = collision(x+this.vx, y, this.vx, 0, monde);
+		if (flag) {
+			this.vx = 0;
+		}
+		this.x = x;
+		this.y = y;
+	}
+	dessine(atlas, tick, ctx) {
+		atlas.dessine(this.x, this.y, this.w, this.h, this.texture, tick, ctx);
+	}
+}
+
 //=======================================================================================
 //=======================================================================================
 
 
-const jean = charge_image("jean.png");
+// const jean = charge_image("jean.png");
 const atlas = new Atlas(
 	charge_image("atlas.png"),
 	8,
@@ -549,7 +635,6 @@ const atlas = new Atlas(
 );
 const TAILLE_CHUNK = 8;
 const monde = new Monde(TAILLE_CHUNK, atlas);
-const batch = new Batch(1000);
 
 let x = 0;
 let y = 0;
@@ -562,6 +647,26 @@ let APLAT = true;
 let INTERVAL = 2;
 let PARESSEUX = true;
 
+let jean = new Entité(0, 0, 1, 1);
+monde.entités.push(jean);
+
+const batch = new Batch(1000);
+let va1 = new VertexArray([
+	0, 0, 0, 1,
+	2, 0, 1, 1,
+	2, 2, 1, 0,
+	0, 2, 0, 0], [2, 2], gl.STATIC_DRAW);
+
+// tex = [atlas, main, bright, blur]
+
+const TEX_ATLAS = 0;
+const TEX_MAIN = 1;
+const TEX_BRIGHT = 2;
+const TEX_BLUR = 3;
+fbo_base = new FrameBuffer(64, 32, 1, TEX_MAIN);
+fbo_blur = [new FrameBuffer(gl.canvas.width, gl.canvas.height, 1, TEX_BLUR), new FrameBuffer(gl.canvas.width, gl.canvas.height, 1, TEX_BRIGHT)];
+unbindAllFbo();
+
 function tick() {
 	gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -573,7 +678,11 @@ function tick() {
 	if (monde.tick%INTERVAL == 0) {
 		monde.update();
 	}
-	monde.dessine(x, y, ECRAN_LARGEUR/(2*ZOOM), ECRAN_HAUTEUR/(2*ZOOM), ZOOM, 2*RAYON, batch);
+
+	gl.uniform3f(base_shader.uniforms.u_camera, x, y, ZOOM);
+	batch.bind();
+	monde.dessine(2*RAYON, batch);
+	//jean.update(0, 0);
 
 	//---------------------------------------------------------------------------------------
 	if (CLAVIER[HAUT] || CLAVIER["Z"]) {
