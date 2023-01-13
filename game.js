@@ -23,7 +23,7 @@ function chunk_id(x, y) {
 	return `${x} ${y}`;
 }
 
-function rnd(a, b) {
+function rnd(a=-1, b=1) {
 	return a+Math.random()*(b-a);
 }
 
@@ -448,79 +448,121 @@ class Eau extends Bloc {
 	}
 }
 
+function mix(a, b, m) {
+	return a*(1-m)+b*m;
+}
+
+function mix2(x0, y0, x1, y1, m) {
+	return [mix(x0, x1, m), mix(y0, y1, m)];
+}
+
+function round(x, y) {
+	let d  = Math.sqrt(x*x+y*y);
+	return [x/d, y/d];
+}
+
+function same(x0, y0, x1, y1) {
+	return Math.floor(x0) == Math.floor(x1) && Math.floor(y0) == Math.floor(y1);
+}
+
+
+const BASE_FORK = 0.15;
+const DIV_FORK = 0.3;
+const DIV_LINE = 0.1;
 class Tronc extends Bloc {
 	texture = 6;
-	constructor(tick, x, y, dx=0, dy=-1, age=50) {
+	constructor(tick, x, y, dx=0, dy=-1, age=40, fork=null) {
 		super(tick);
 		this.x = x;
 		this.y = y;
 		this.dx = dx;
 		this.dy = dy;
 		this.age = age;
+		if (fork === null) {
+			this.fork = age-8;
+			this.fork = Math.min(age-4, Math.floor(age*0.75));
+		} else {
+			this.fork = fork;
+		}
 	}
 
 	update(x, y, monde, tick) {
 		monde.set_bloc(x, y, new Bois());
-		if (this.age == 0 || (this.age<30 && Math.random() > 0.9)) {
-			monde.set_bloc(x, y, new Feuilles(tick, x, y, 0, this.age/8+4));
-		}
 		if (this.age <= 0) {
 			return true;
 		}
+
+		if (this.age <= this.fork) {
+			let m = BASE_FORK+rnd(0, DIV_FORK);
+			let dx = this.dx;
+			let dy = this.dy;
+			let [rx, ry] = round(...mix2(dx, dy, -dy, dx, m));
+			let [lx, ly] = round(...mix2(dx, dy, dy, -dx, m));
+			let rm = 1;
+			let lm = 1;
+			if (same(x, y, x+rx, y+ry)) {
+				rm = 2;
+			}
+			if (same(x, y, x+lx, y+ly)) {
+				lm = 2;
+			}
+			monde.set_bloc(
+				Math.floor(x+lm*lx),
+				Math.floor(y+lm*ly),
+				new Tronc(tick, x+lm*lx, y+lm*ly, lx, ly, this.age)
+			);
+			monde.set_bloc(
+				Math.floor(x+rm*rx),
+				Math.floor(y+rm*ry),
+				new Tronc(tick, x+rm*rx, y+rm*ly, rx, ry, this.age)
+			);
+			return true;
+		}
+
 		x = this.x+this.dx;
 		y = this.y+this.dy;
-		let dx = this.dx+rnd(-0.2, 0.2);
-		let dy = this.dy+rnd(-0.2, 0.2);
-		let d  = Math.sqrt(dx*dx+dy*dy);
+		let [dx, dy] = round(this.dx+rnd()*DIV_LINE, this.dy+rnd()*DIV_LINE);
 		monde.set_bloc(
 			Math.floor(x),
 			Math.floor(y),
-			new Tronc(tick, x, y, dx/d, dy/d, this.age-1),
+			new Tronc(tick, x, y, dx, dy, this.age-1, this.fork),
 		)
 		return true;
 	}
 }
 
+const COOL_DOWN = 20;
 class Feuilles extends Bloc {
 	texture = 8;
 	transparent = true;
-	constructor(tick, x, y, r=0, mr=50) {
+	constructor(tick, x, y, r=10) {
 		super(tick);
 		this.x = x;
 		this.y = y;
 		this.r = r;
-		this.or = r;
-		this.mr = mr;
-		this.full = false;
+		this.cd = COOL_DOWN;
 	}
 
 	update(x, y, monde, tick) {
-		let nx, ny;
-		if (this.r >= this.mr) {
-			return false;
+		if (this.cd > 0) {
+			this.cd--;
+			return true;
 		}
-		let r2 = this.r*this.r;
 		let ox = x-this.x;
 		let oy = y-this.y;
-		this.full = true;
+		let r2 = this.r*this.r;
 		for (let [dx, dy] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
 			let nx = ox+dx;
 			let ny = oy+dy;
 			let nr = nx*nx+ny*ny;
 			let valid = monde.get_bloc(x+dx, y+dy) instanceof Air;
 			if (nr <= r2 && valid) {
-				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, Math.sqrt(nr), this.mr));
-			} else if (valid) {
-				this.full = false;
+				monde.set_bloc(x+dx, y+dy, new Feuilles(tick, this.x, this.y, this.r));
+				this.cd = COOL_DOWN;
+				return true;
 			}
 		}
-		if (this.full) {
-			this.r = this.or;
-			return false;
-		} else {
-			this.r += 0.1;
-			return true;
-		}
+		return false;
 	}
 }
 
@@ -698,7 +740,9 @@ function tick() {
 		x += VITESSE;
 	}
 	if (SOURIS.bouton == 1) {
-		monde.set_bloc(x+SOURIS.bloc_x, y+SOURIS.bloc_y, new BLOC(0, x, y));
+		let bloc_x = x+SOURIS.bloc_x;
+		let bloc_y = y+SOURIS.bloc_y;
+		monde.set_bloc(bloc_x, bloc_y, new BLOC(0, bloc_x, bloc_y));
 	}
 
 	//---------------------------------------------------------------------------------------
