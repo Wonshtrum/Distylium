@@ -48,17 +48,17 @@ class VertexArray {
 
 
 class FrameBuffer {
-	constructor(width, height, n, tex0) {
-		this.tex0 = tex0 || 0;
-		this.n = n;
+	constructor(width, height, ids) {
+		this.ids = ids.map(i => i+gl.TEXTURE0);
+		this.n = ids.length;
 		this.width = width;
 		this.height = height;
-		this.tex = Array(n);
+		this.tex = Array(this.n);
 		this.fbo = gl.createFramebuffer();
-		this.attachments = Array.from({length:n}, (_, i)=>gl.COLOR_ATTACHMENT0+i);
+		this.attachments = Array.from({length:this.n}, (_, i)=>gl.COLOR_ATTACHMENT0+i);
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-		for (let i = 0 ; i < n ; i++) {
-			gl.activeTexture(gl.TEXTURE0+i+this.tex0);
+		for (let i = 0 ; i < this.n ; i++) {
+			gl.activeTexture(this.ids[i]);
 			this.tex[i] = texture_vide();
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 			gl.framebufferTexture2D(gl.FRAMEBUFFER, this.attachments[i], gl.TEXTURE_2D, this.tex[i], 0);
@@ -69,7 +69,7 @@ class FrameBuffer {
 		this.height = height;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
 		for (let i = 0 ; i < this.n ; i++) {
-			gl.activeTexture(gl.TEXTURE0+i+this.tex0);
+			gl.activeTexture(this.ids[i]);
 			gl.bindTexture(gl.TEXTURE_2D, this.tex[i]);
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
 		}
@@ -79,7 +79,7 @@ class FrameBuffer {
 		gl.drawBuffers(this.attachments);
 		gl.viewport(0, 0, this.width, this.height);
 		for (let i = 0 ; i < this.n ; i++) {
-			gl.activeTexture(gl.TEXTURE0+i+this.tex0);
+			gl.activeTexture(this.ids[i]);
 			gl.bindTexture(gl.TEXTURE_2D, this.tex[i]);
 		}
 	}

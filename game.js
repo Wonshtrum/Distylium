@@ -141,8 +141,6 @@ class Monde {
 		for (let entité of this.entités) {
 			entité.dessine(this.atlas, this.tick, ctx);
 		}
-		ctx.flush();
-		ctx.begin();
 		this.tick++;
 	}
 }
@@ -705,13 +703,10 @@ const TEX_ATLAS = 0;
 const TEX_MAIN = 1;
 const TEX_BRIGHT = 2;
 const TEX_BLUR = 3;
-fbo_base = new FrameBuffer(64, 32, 1, TEX_MAIN);
-fbo_blur = [new FrameBuffer(gl.canvas.width, gl.canvas.height, 1, TEX_BLUR), new FrameBuffer(gl.canvas.width, gl.canvas.height, 1, TEX_BRIGHT)];
-unbindAllFbo();
+fbo_base = new FrameBuffer(640, 400, [TEX_MAIN, TEX_BRIGHT]);
+fbo_blur = [new FrameBuffer(128, 80, [TEX_BLUR]), new FrameBuffer(128, 80, [TEX_BRIGHT])];
 
 function tick() {
-	gl.clear(gl.COLOR_BUFFER_BIT);
-
 	for (let dx=-RAYON; dx<=RAYON; dx++) {
 		for (let dy=-RAYON; dy<=RAYON; dy++) {
 			monde.get_bloc(x+dx*TAILLE_CHUNK, y+dy*TAILLE_CHUNK);
@@ -721,9 +716,28 @@ function tick() {
 		monde.update();
 	}
 
+	fbo_base.bind();
+	base_shader.bind();
 	gl.uniform3f(base_shader.uniforms.u_camera, x, y, ZOOM);
+	gl.clear(gl.COLOR_BUFFER_BIT);
 	batch.bind();
 	monde.dessine(2*RAYON, batch);
+	batch.flush();
+
+	va1.bind();
+	for (let i = 0 ; i < 3 ; i++) {
+		fbo_blur[0].bind();
+		blurH_shader.bind();
+		va1.draw();
+		fbo_blur[1].bind();
+		blurV_shader.bind();
+		va1.draw();
+	}
+
+	unbindAllFbo();
+	texture_shader.bind();
+	va1.bind();
+	va1.draw();
 	//jean.update(0, 0);
 
 	//---------------------------------------------------------------------------------------
